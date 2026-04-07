@@ -1,5 +1,9 @@
 # open-agent4j
 
+![Under development](https://upload.wikimedia.org/wikipedia/commons/thumb/7/73/OOjs_UI_icon_construction.svg/120px-OOjs_UI_icon_construction.svg.png)
+
+open-agent4j is a **work in progress**: APIs, Maven coordinates, and behavior may change before a stable release. Feedback and early adopters are welcome—pin to a specific commit or snapshot if you experiment with the library.
+
 open-agent4j is a Java library for building agentic LLM interactions. It provides a simple API to manage agent workflows with built-in resilience, multi-model fallbacks, and reasoning support.
 
 ## Features
