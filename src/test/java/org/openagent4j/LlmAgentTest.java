@@ -22,12 +22,11 @@ class LlmAgentTest {
                 {input}
                 """;
 
-        LlmAgent weatherAgent = LlmAgent.builder()
+        LlmAgent<WeatherResponse> weatherAgent = LlmAgent.builder(WeatherResponse.class)
                 .name("Weather Agent")
                 .about(
                         "Your are a weather agent and your task is to make sure to find the weather of a specific locaiton which is passed")
                 .task(task)
-                .returnType(WeatherResponse.class)
                 .internalTools(
                         LlmAgent.tools(
                                 Tool.of("lookup", "Resolve coordinates"), Tool.of("format", "Format report")))
@@ -69,11 +68,10 @@ class LlmAgentTest {
 
     @Test
     void runReturnsRawStringWhenReturnTypeIsStringClass() {
-        LlmAgent agent = LlmAgent.builder()
+        LlmAgent<String> agent = LlmAgent.builder(String.class)
                 .name("Echo")
                 .about("Echoes output.")
                 .task("Say: {input}")
-                .returnType(String.class)
                 .model(Model.of("test", "model"))
                 .modelConfig(ModelConfiguration.temperature(0).maxTokenOutput(10))
                 .llmExecutor(LlmRequest::taskPrompt)
@@ -85,7 +83,7 @@ class LlmAgentTest {
 
     @Test
     void runReturnsRawStringWhenReturnTypeUnset() {
-        LlmAgent agent = LlmAgent.builder()
+        LlmAgent<Object> agent = LlmAgent.builder()
                 .name("Echo")
                 .about("Echoes output.")
                 .task("Hi {input}")
