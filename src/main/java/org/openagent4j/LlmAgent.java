@@ -6,34 +6,54 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import lombok.Builder;
 import lombok.Singular;
+import org.openagent4j.execution.AgentStep;
 import org.openagent4j.execution.LlmExecutor;
 import org.openagent4j.execution.LlmRequest;
+import org.openagent4j.execution.RetryPolicy;
+import org.openagent4j.memory.LlmSession;
 import org.openagent4j.memory.Memory;
 import org.openagent4j.model.Model;
 import org.openagent4j.model.ModelConfiguration;
+import org.openagent4j.model.ReasoningConfig;
 import org.openagent4j.tool.McpTool;
 import org.openagent4j.tool.Tool;
 
 /**
  * Configurable LLM-backed agent: prompt template, typed JSON result, tools, MCP references, model choice, and execution hook.
  */
-@Builder(toBuilder = true)
-public record LlmAgent(
+@Builder(toBuilder = true, builderMethodName = "internalBuilder")
+public record LlmAgent<T>(
         String name,
         String about,
         String task,
-        Class<?> returnType,
+        Class<T> returnType,
         @Singular("internalTool") List<Tool> internalTools,
         @Singular("mcp") List<McpTool> mcpTools,
         Double minConfidence,
         Memory memory,
+        LlmSession session,
         Model model,
         ModelConfiguration modelConfig,
+        ReasoningConfig reasoningConfig,
+        RetryPolicy retryPolicy,
+        Consumer<AgentStep> onStep,
+        BiConsumer<Tool, Throwable> onToolError,
         LlmExecutor llmExecutor) {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper().findAndRegisterModules();
+
+    public static LlmAgentBuilder<Object> builder() {
+        return internalBuilder();
+    }
+
+    public static <R> LlmAgentBuilder<R> builder(Class<R> returnType) {
+        return LlmAgent.<R>internalBuilder().returnType(returnType);
+    }
 
     /**
      * Vararg-friendly list for the generated builder's {@code internalTools(Collection)} so call sites can batch tools in one call.
@@ -78,7 +98,8 @@ public record LlmAgent(
      * Runs the agent: substitutes {@code {input}} in {@code task}, calls {@link LlmExecutor#complete(LlmRequest)}, then parses JSON
      * into {@code returnType} when set (otherwise returns the raw string).
      */
-    public Object run(String input) {
+    @SuppressWarnings("unchecked")
+    public T run(String input) {
         Objects.requireNonNull(input, "input");
         String taskPrompt = task.replace("{input}", input);
         LlmRequest request = new LlmRequest(
@@ -90,15 +111,27 @@ public record LlmAgent(
                 internalTools,
                 mcpTools,
                 memory,
+                session,
+                reasoningConfig,
+                retryPolicy,
                 minConfidence);
+
+        if (onStep != null) {
+            onStep.accept(new AgentStep("Starting execution"));
+        }
+
         String rawText = llmExecutor.complete(request);
         if (returnType == null || returnType == String.class) {
-            return rawText;
+            return (T) rawText;
         }
         try {
             return OBJECT_MAPPER.readValue(rawText, returnType);
         } catch (JsonProcessingException e) {
             throw new IllegalArgumentException("Failed to parse model output as " + returnType.getName(), e);
         }
+    }
+
+    public CompletableFuture<T> runAsync(String input) {
+        return CompletableFuture.supplyAsync(() -> run(input));
     }
 }
