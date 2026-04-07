@@ -9,8 +9,8 @@ import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
-import lombok.Builder;
-import lombok.Singular;
+import org.openagent4j.config.OpenAgentProperties;
+import org.openagent4j.config.ProviderSettings;
 import org.openagent4j.execution.AgentStep;
 import org.openagent4j.execution.LlmExecutor;
 import org.openagent4j.execution.LlmRequest;
@@ -21,19 +21,20 @@ import org.openagent4j.model.Model;
 import org.openagent4j.model.ModelConfiguration;
 import org.openagent4j.model.ReasoningConfig;
 import org.openagent4j.tool.McpTool;
+import org.openagent4j.tool.ServiceTools;
 import org.openagent4j.tool.Tool;
 
 /**
  * Configurable LLM-backed agent: prompt template, typed JSON result, tools, MCP references, model choice, and execution hook.
  */
-@Builder(toBuilder = true, builderMethodName = "internalBuilder")
 public record LlmAgent<T>(
         String name,
         String about,
+        String purpose,
         String task,
         Class<T> returnType,
-        @Singular("internalTool") List<Tool> internalTools,
-        @Singular("mcp") List<McpTool> mcpTools,
+        List<Tool> tools,
+        List<McpTool> mcpTools,
         Double minConfidence,
         Memory memory,
         LlmSession session,
@@ -43,21 +44,31 @@ public record LlmAgent<T>(
         RetryPolicy retryPolicy,
         Consumer<AgentStep> onStep,
         BiConsumer<Tool, Throwable> onToolError,
+        OpenAgentProperties agentProperties,
         LlmExecutor llmExecutor) {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper().findAndRegisterModules();
 
-    public static LlmAgentBuilder<Object> builder() {
-        return internalBuilder();
+    public LlmAgent {
+        Objects.requireNonNull(name, "name");
+        Objects.requireNonNull(about, "about");
+        Objects.requireNonNull(task, "task");
+        Objects.requireNonNull(llmExecutor, "llmExecutor");
+        Objects.requireNonNull(agentProperties, "agentProperties");
+        tools = tools == null ? List.of() : List.copyOf(tools);
+        mcpTools = mcpTools == null ? List.of() : List.copyOf(mcpTools);
     }
 
-    public static <R> LlmAgentBuilder<R> builder(Class<R> returnType) {
-        return LlmAgent.<R>internalBuilder().returnType(returnType);
+    public static Builder<Object> builder() {
+        return new Builder<>();
     }
 
-    /**
-     * Vararg-friendly list for the generated builder's {@code internalTools(Collection)} so call sites can batch tools in one call.
-     */
+    public static <R> Builder<R> builder(Class<R> returnType) {
+        Builder<R> builder = new Builder<>();
+        builder.returnType = returnType;
+        return builder;
+    }
+
     @SafeVarargs
     @SuppressWarnings("varargs")
     public static List<Tool> tools(Tool first, Tool... more) {
@@ -71,7 +82,6 @@ public record LlmAgent<T>(
         return List.copyOf(list);
     }
 
-    /** Vararg-friendly list for the generated builder's {@code mcpTools(Collection)}. */
     @SafeVarargs
     @SuppressWarnings("varargs")
     public static List<McpTool> mcps(McpTool first, McpTool... more) {
@@ -85,13 +95,9 @@ public record LlmAgent<T>(
         return List.copyOf(list);
     }
 
-    public LlmAgent {
-        Objects.requireNonNull(name, "name");
-        Objects.requireNonNull(about, "about");
-        Objects.requireNonNull(task, "task");
-        Objects.requireNonNull(llmExecutor, "llmExecutor");
-        internalTools = internalTools == null ? List.of() : List.copyOf(internalTools);
-        mcpTools = mcpTools == null ? List.of() : List.copyOf(mcpTools);
+    @SuppressWarnings("unchecked")
+    public T run() {
+        return run("");
     }
 
     /**
@@ -102,19 +108,22 @@ public record LlmAgent<T>(
     public T run(String input) {
         Objects.requireNonNull(input, "input");
         String taskPrompt = task.replace("{input}", input);
+        ProviderSettings providerSettings = agentProperties.resolve(model);
         LlmRequest request = new LlmRequest(
                 name,
                 about,
+                purpose,
                 taskPrompt,
                 model,
                 modelConfig,
-                internalTools,
+                tools,
                 mcpTools,
                 memory,
                 session,
                 reasoningConfig,
                 retryPolicy,
-                minConfidence);
+                minConfidence,
+                providerSettings);
 
         if (onStep != null) {
             onStep.accept(new AgentStep("Starting execution"));
@@ -131,7 +140,201 @@ public record LlmAgent<T>(
         }
     }
 
+    public CompletableFuture<T> runAsync() {
+        return CompletableFuture.supplyAsync(this::run);
+    }
+
     public CompletableFuture<T> runAsync(String input) {
         return CompletableFuture.supplyAsync(() -> run(input));
+    }
+
+    public static final class Builder<T> {
+
+        private String name;
+        private String about;
+        private String purpose;
+        private String task;
+        private Class<?> returnType;
+        private final List<Tool> tools = new ArrayList<>();
+        private final List<McpTool> mcpTools = new ArrayList<>();
+        private Double minConfidence;
+        private Memory memory;
+        private LlmSession session;
+        private Model model;
+        private ModelConfiguration modelConfig;
+        private ReasoningConfig reasoningConfig;
+        private RetryPolicy retryPolicy;
+        private Consumer<AgentStep> onStep;
+        private BiConsumer<Tool, Throwable> onToolError;
+        private OpenAgentProperties agentProperties;
+        private LlmExecutor llmExecutor;
+
+        private Builder() {}
+
+        public Builder<T> name(String name) {
+            this.name = name;
+            return this;
+        }
+
+        public Builder<T> about(String about) {
+            this.about = about;
+            return this;
+        }
+
+        public Builder<T> purpose(String purpose) {
+            this.purpose = purpose;
+            return this;
+        }
+
+        public Builder<T> task(String task) {
+            this.task = task;
+            return this;
+        }
+
+        @SuppressWarnings("unchecked")
+        public <R> Builder<R> response(Class<R> returnType) {
+            this.returnType = returnType;
+            return (Builder<R>) (Builder<?>) this;
+        }
+
+        public Builder<T> tools(Tool tool) {
+            Objects.requireNonNull(tool, "tool");
+            tools.add(tool);
+            return this;
+        }
+
+        public Builder<T> tools(Tool first, Tool... more) {
+            tools.add(Objects.requireNonNull(first, "first"));
+            if (more != null) {
+                Collections.addAll(tools, more);
+            }
+            return this;
+        }
+
+        public Builder<T> tools(List<Tool> toolList) {
+            Objects.requireNonNull(toolList, "toolList");
+            tools.addAll(toolList);
+            return this;
+        }
+
+        /**
+         * Registers tools from a {@link Tool} instance or from {@link org.openagent4j.tool.AgentTool}-annotated methods.
+         */
+        public Builder<T> tools(Object toolOrService) {
+            Objects.requireNonNull(toolOrService, "toolOrService");
+            if (toolOrService instanceof Tool t) {
+                tools.add(t);
+                return this;
+            }
+            tools.addAll(ServiceTools.fromObject(toolOrService));
+            return this;
+        }
+
+        public Builder<T> internalTools(List<Tool> toolList) {
+            return tools(toolList);
+        }
+
+        public Builder<T> internalTools(Tool first, Tool... more) {
+            return tools(first, more);
+        }
+
+        public Builder<T> mcp(McpTool mcpTool) {
+            Objects.requireNonNull(mcpTool, "mcpTool");
+            mcpTools.add(mcpTool);
+            return this;
+        }
+
+        public Builder<T> mcps(List<McpTool> mcps) {
+            Objects.requireNonNull(mcps, "mcps");
+            mcpTools.addAll(mcps);
+            return this;
+        }
+
+        public Builder<T> mcps(McpTool first, McpTool... more) {
+            mcpTools.add(Objects.requireNonNull(first, "first"));
+            if (more != null) {
+                Collections.addAll(mcpTools, more);
+            }
+            return this;
+        }
+
+        public Builder<T> minConfidence(Double minConfidence) {
+            this.minConfidence = minConfidence;
+            return this;
+        }
+
+        public Builder<T> memory(Memory memory) {
+            this.memory = memory;
+            return this;
+        }
+
+        public Builder<T> session(LlmSession session) {
+            this.session = session;
+            return this;
+        }
+
+        public Builder<T> model(Model model) {
+            this.model = model;
+            return this;
+        }
+
+        public Builder<T> modelConfig(ModelConfiguration modelConfig) {
+            this.modelConfig = modelConfig;
+            return this;
+        }
+
+        public Builder<T> reasoningConfig(ReasoningConfig reasoningConfig) {
+            this.reasoningConfig = reasoningConfig;
+            return this;
+        }
+
+        public Builder<T> retryPolicy(RetryPolicy retryPolicy) {
+            this.retryPolicy = retryPolicy;
+            return this;
+        }
+
+        public Builder<T> onStep(Consumer<AgentStep> onStep) {
+            this.onStep = onStep;
+            return this;
+        }
+
+        public Builder<T> onToolError(BiConsumer<Tool, Throwable> onToolError) {
+            this.onToolError = onToolError;
+            return this;
+        }
+
+        public Builder<T> agentProperties(OpenAgentProperties agentProperties) {
+            this.agentProperties = agentProperties;
+            return this;
+        }
+
+        public Builder<T> llmExecutor(LlmExecutor llmExecutor) {
+            this.llmExecutor = llmExecutor;
+            return this;
+        }
+
+        @SuppressWarnings("unchecked")
+        public LlmAgent<T> build() {
+            OpenAgentProperties resolvedProps = agentProperties != null ? agentProperties : OpenAgentProperties.load();
+            return new LlmAgent<>(
+                    name,
+                    about,
+                    purpose,
+                    task,
+                    (Class<T>) returnType,
+                    List.copyOf(tools),
+                    List.copyOf(mcpTools),
+                    minConfidence,
+                    memory,
+                    session,
+                    model,
+                    modelConfig,
+                    reasoningConfig,
+                    retryPolicy,
+                    onStep,
+                    onToolError,
+                    resolvedProps,
+                    llmExecutor);
+        }
     }
 }

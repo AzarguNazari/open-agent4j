@@ -2,6 +2,7 @@ package org.openagent4j.execution;
 
 import java.util.List;
 import java.util.Objects;
+import org.openagent4j.config.ProviderSettings;
 import org.openagent4j.memory.LlmSession;
 import org.openagent4j.memory.Memory;
 import org.openagent4j.model.Model;
@@ -16,26 +17,35 @@ import org.openagent4j.tool.Tool;
 public record LlmRequest(
         String agentName,
         String agentAbout,
+        String purpose,
         String taskPrompt,
         Model model,
         ModelConfiguration modelConfig,
-        List<Tool> internalTools,
+        List<Tool> tools,
         List<McpTool> mcpTools,
         Memory memory,
         LlmSession session,
         ReasoningConfig reasoningConfig,
         RetryPolicy retryPolicy,
-        Double minConfidence) {
+        Double minConfidence,
+        ProviderSettings providerSettings) {
 
     public LlmRequest {
         Objects.requireNonNull(agentName, "agentName");
         Objects.requireNonNull(agentAbout, "agentAbout");
         Objects.requireNonNull(taskPrompt, "taskPrompt");
-        internalTools = internalTools == null ? List.of() : List.copyOf(internalTools);
+        tools = tools == null ? List.of() : List.copyOf(tools);
         mcpTools = mcpTools == null ? List.of() : List.copyOf(mcpTools);
     }
 
     public String systemMessage() {
-        return "You are " + agentName + ". " + agentAbout;
+        StringBuilder message = new StringBuilder("You are ")
+                .append(agentName)
+                .append(". ")
+                .append(agentAbout);
+        if (purpose != null && !purpose.isBlank()) {
+            message.append(' ').append(purpose.trim());
+        }
+        return message.toString();
     }
 }
