@@ -7,21 +7,42 @@
   """;
 
   record WeatherResponse(String city, String temperature, String nextDayPrediction) {}
+LlmSession session = LlmSession.newPersistentSession("user-123");
 
-  LlmAgent weatherAgent = LlmAgent.builder()
-               .name("Weather Agent")
-               .about("Your are a weather agent and your task is to make sure to find the weather of a specific locaiton which is passed")
-               .task(task)
-               .returnType(WeatherResponse)
-               .internalTool(Tool.of(...), Tool.of(...))
-               .mcp(McpTool.of(...), McpTool.of(...))
-               .minConfidence(...)
-               .memory(Memory.from(....))
-               .model(Model.of(....))
-               .modelConfig(ModelConfiguration.temperature(0).maxTokenOutput(500))
-               .build();
+Tool.builder("get_weather")
+    .action(weatherService::fetch)
+    .preValidator(args -> {
+        if (args.getString("city").isEmpty()) throw new InvalidArgsException("City is required");
+    })
+    .build();
 
-weatherAgent.run(input);
+LlmAgent<WeatherResponse> weatherAgent = LlmAgent.builder(WeatherResponse.class)
+    .name("Weather Expert")
+    // 1. Multi-Model Fallback: If OpenAI hits a rate limit, swap to DeepSeek automatically.
+    .model(
+        Model.of("gpt-4o")
+             .withFallback(Model.of("deepseek-reasoner")) 
+    )
+    // 2. Specialized Reasoning: Support for DeepSeek R1 / OpenAI o1 'thinking' tokens.
+    .reasoningConfig(ReasoningConfig.builder()
+        .includeThoughts(true) // Allows you to capture the <thought> tags
+        .maxThinkingTokens(1000)
+        .build())
+    
+    // 3. Resilience: Don't let a bad tool call kill the agent.
+    .retryPolicy(RetryPolicy.exponentialBackoff(3))
+    
+    // 4. State & Memory: Using the session to maintain context across different .run() calls.
+    .session(session)
+    
+    // 5. Hooks for Observability (Crucial for debugging agents)
+    .onStep(step -> log.info("Agent is currently: {}", step.action()))
+    .onToolError((tool, error) -> log.error("Tool {} failed, attempting recovery...", tool))
+    
+    .build();
+
+// Use a Future or Flux for streaming the agent's "train of thought"
+CompletableFuture<WeatherResponse> result = weatherAgent.runAsync("What's it like in London?");
 ```
 
 
