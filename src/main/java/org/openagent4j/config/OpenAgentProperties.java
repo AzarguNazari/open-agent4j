@@ -70,7 +70,7 @@ public final class OpenAgentProperties {
         return new ProviderSettings(pid, api, base);
     }
 
-    static String env(String name) {
+    private static String env(String name) {
         if (name == null) {
             return null;
         }

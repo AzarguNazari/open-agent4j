@@ -26,6 +26,8 @@ import org.openagent4j.tool.Tool;
 
 /**
  * Configurable LLM-backed agent: prompt template, typed JSON result, tools, MCP references, model choice, and execution hook.
+ * {@code onToolError} is reserved for executors that invoke tools; {@link org.openagent4j.execution.OpenAiCompatibleLlmExecutor} does not
+ * call tools yet.
  */
 public record LlmAgent<T>(
         String name,
@@ -228,14 +230,6 @@ public record LlmAgent<T>(
             }
             tools.addAll(ServiceTools.fromObject(toolOrService));
             return this;
-        }
-
-        public Builder<T> internalTools(List<Tool> toolList) {
-            return tools(toolList);
-        }
-
-        public Builder<T> internalTools(Tool first, Tool... more) {
-            return tools(first, more);
         }
 
         public Builder<T> mcp(McpTool mcpTool) {
