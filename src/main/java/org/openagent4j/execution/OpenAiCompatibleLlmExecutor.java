@@ -5,8 +5,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.IOException;
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
+import java.lang.reflect.RecordComponent;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
+import java.util.StringJoiner;
 import java.util.concurrent.TimeUnit;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
@@ -66,9 +70,15 @@ public final class OpenAiCompatibleLlmExecutor implements LlmExecutor {
         ObjectNode body = MAPPER.createObjectNode();
         body.put("model", modelName);
         ArrayNode messages = body.putArray("messages");
+        String systemMessage = request.systemMessage();
+        if (request.expectsStructuredResponse()) {
+            ObjectNode responseFormat = body.putObject("response_format");
+            responseFormat.put("type", "json_object");
+            systemMessage = systemMessage + structuredOutputInstruction(request.responseType());
+        }
         ObjectNode system = messages.addObject();
         system.put("role", "system");
-        system.put("content", request.systemMessage());
+        system.put("content", systemMessage);
         ObjectNode user = messages.addObject();
         user.put("role", "user");
         user.put("content", request.taskPrompt());
@@ -134,5 +144,43 @@ public final class OpenAiCompatibleLlmExecutor implements LlmExecutor {
             return base.substring(0, base.length() - 1);
         }
         return base;
+    }
+
+    private static String structuredOutputInstruction(Class<?> responseType) {
+        StringJoiner fields = new StringJoiner(", ");
+        if (responseType.isRecord()) {
+            for (RecordComponent component : responseType.getRecordComponents()) {
+                fields.add("\"" + component.getName() + "\": \"" + typeLabel(component.getType()) + "\"");
+            }
+        } else {
+            for (Field field : responseType.getDeclaredFields()) {
+                if (Modifier.isStatic(field.getModifiers()) || field.isSynthetic()) {
+                    continue;
+                }
+                fields.add("\"" + field.getName() + "\": \"" + typeLabel(field.getType()) + "\"");
+            }
+        }
+        String shape = fields.length() == 0 ? "{}" : "{" + fields + "}";
+        return "\nReturn ONLY valid JSON that can be deserialized to "
+                + responseType.getName()
+                + ". Expected shape: "
+                + shape
+                + ".";
+    }
+
+    private static String typeLabel(Class<?> type) {
+        if (type.isArray()) {
+            return "array<" + typeLabel(type.getComponentType()) + ">";
+        }
+        if (type == String.class || type == char.class || type == Character.class) {
+            return "string";
+        }
+        if (type == boolean.class || type == Boolean.class) {
+            return "boolean";
+        }
+        if (type.isPrimitive() || Number.class.isAssignableFrom(type)) {
+            return "number";
+        }
+        return "object";
     }
 }

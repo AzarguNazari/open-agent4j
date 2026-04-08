@@ -142,6 +142,32 @@ class LlmAgentTest {
     }
 
     @Test
+    void typedResponseIsExposedOnLlmRequest() {
+        LlmAgent<WeatherResponse> agent = LlmAgent.builder()
+                .name("Typed")
+                .about("Expose configured return type to executor.")
+                .task("weather")
+                .response(WeatherResponse.class)
+                .model(Model.of("test", "model"))
+                .agentProperties(OpenAgentProperties.empty())
+                .llmExecutor(req -> {
+                    try {
+                        Object responseType = req.getClass().getMethod("responseType").invoke(req);
+                        assertEquals(WeatherResponse.class, responseType);
+                    } catch (ReflectiveOperationException e) {
+                        throw new AssertionError("LlmRequest should expose configured response type", e);
+                    }
+                    return """
+                            {"city":"Oslo","temperature":"5C","nextDayPrediction":"rain"}
+                            """;
+                })
+                .build();
+
+        WeatherResponse out = agent.run();
+        assertEquals("Oslo", out.city());
+    }
+
+    @Test
     void purposeIsIncludedInSystemMessage() {
         LlmAgent<String> agent = LlmAgent.builder(String.class)
                 .name("N")

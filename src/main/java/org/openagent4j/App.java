@@ -11,7 +11,9 @@ public class App {
 
     public static void main(String[] args) {
         LlmSession session = LlmSession.newPersistentSession("demo-user");
-        LlmAgent<String> chatAgent = LlmAgent.builder()
+
+        record Answer(String answer) {}
+        LlmAgent<Answer> chatAgent = LlmAgent.builder()
                 .name("SimpleChat")
                 .about("A simple chat agent")
                 .purpose(
@@ -20,11 +22,11 @@ public class App {
                 .onStep(step -> System.out.println("[step] " + step.action()))
                 .task("What is the result of 2 + 2?")
                 .session(session)
-                .response(String.class)
+                .response(Answer.class)
                 .llmExecutor(new OpenAiCompatibleLlmExecutor())
                 .build();
 
-        String response = chatAgent.run();
+        Answer response = chatAgent.run();
         System.out.println(response);
     }
 }

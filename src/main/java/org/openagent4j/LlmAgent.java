@@ -125,6 +125,7 @@ public record LlmAgent<T>(
                 reasoningConfig,
                 retryPolicy,
                 minConfidence,
+                returnType,
                 providerSettings);
 
         if (onStep != null) {

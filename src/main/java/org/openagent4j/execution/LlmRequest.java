@@ -28,6 +28,7 @@ public record LlmRequest(
         ReasoningConfig reasoningConfig,
         RetryPolicy retryPolicy,
         Double minConfidence,
+        Class<?> responseType,
         ProviderSettings providerSettings) {
 
     public LlmRequest {
@@ -43,5 +44,9 @@ public record LlmRequest(
             return "";
         }
         return purpose.trim();
+    }
+
+    public boolean expectsStructuredResponse() {
+        return responseType != null && responseType != String.class;
     }
 }
