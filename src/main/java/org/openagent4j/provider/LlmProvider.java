@@ -25,43 +25,41 @@ public enum LlmProvider {
             List.of("DEEPSEEK_API_KEY"),
             List.of("DEEPSEEK_BASE_URL"));
 
-    private final String id;
-    private final String defaultBaseUrl;
-    private final List<String> apiKeyEnvFallbacks;
-    private final List<String> baseUrlEnvFallbacks;
+    private final ProviderDescriptor descriptor;
 
     LlmProvider(
             String id,
             String defaultBaseUrl,
             List<String> apiKeyEnvFallbacks,
             List<String> baseUrlEnvFallbacks) {
-        this.id = id;
-        this.defaultBaseUrl = defaultBaseUrl;
-        this.apiKeyEnvFallbacks = List.copyOf(apiKeyEnvFallbacks);
-        this.baseUrlEnvFallbacks = List.copyOf(baseUrlEnvFallbacks);
+        this.descriptor = new ProviderDescriptor(id, defaultBaseUrl, apiKeyEnvFallbacks, baseUrlEnvFallbacks);
     }
 
     public String id() {
-        return id;
+        return descriptor.id();
     }
 
     /**
      * Default REST API prefix (no trailing slash) for OpenAI-compatible chat completions.
      */
     public String defaultBaseUrl() {
-        return defaultBaseUrl;
+        return descriptor.defaultBaseUrl();
     }
 
     public List<String> apiKeyEnvFallbacks() {
-        return apiKeyEnvFallbacks;
+        return descriptor.apiKeyEnvFallbacks();
     }
 
     public List<String> baseUrlEnvFallbacks() {
-        return baseUrlEnvFallbacks;
+        return descriptor.baseUrlEnvFallbacks();
     }
 
     public Model model(String modelName) {
-        return Model.of(id, modelName);
+        return descriptor.model(modelName);
+    }
+
+    public ProviderDescriptor descriptor() {
+        return descriptor;
     }
 
     public static Optional<LlmProvider> byId(String providerId) {
@@ -70,7 +68,7 @@ public enum LlmProvider {
         }
         String normalized = providerId.trim().toLowerCase(Locale.ROOT);
         for (LlmProvider value : values()) {
-            if (value.id.equals(normalized)) {
+            if (value.id().equals(normalized)) {
                 return Optional.of(value);
             }
         }

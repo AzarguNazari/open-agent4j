@@ -8,13 +8,14 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Properties;
 import org.openagent4j.model.Model;
-import org.openagent4j.provider.LlmProvider;
+import org.openagent4j.provider.ProviderDescriptor;
+import org.openagent4j.provider.ProviderRegistry;
 
 /**
  * Resolves provider settings from {@code openagent4j.properties}, JVM system properties, and environment variables.
  *
  * <p>Precedence (highest first): system property, environment variable, classpath {@code openagent4j.properties},
- * then provider-specific legacy env vars defined on {@link LlmProvider}.
+ * then provider-specific legacy env vars defined on built-in providers.
  */
 public final class OpenAgentProperties {
 
@@ -56,17 +57,17 @@ public final class OpenAgentProperties {
         String pid = providerId.trim();
         String keyApi = "openagent4j." + pid + ".api-key";
         String keyBase = "openagent4j." + pid + ".base-url";
-        Optional<LlmProvider> known = LlmProvider.byId(pid);
+        Optional<ProviderDescriptor> known = ProviderRegistry.defaults().find(pid);
         String api = firstNonBlank(
                 System.getProperty(keyApi),
                 env("OPENAGENT4J_" + envToken(pid) + "_API_KEY"),
                 fileProps.getProperty(keyApi),
-                firstEnv(known.map(LlmProvider::apiKeyEnvFallbacks).orElse(List.of())));
+                firstEnv(known.map(ProviderDescriptor::apiKeyEnvFallbacks).orElse(List.of())));
         String base = firstNonBlank(
                 System.getProperty(keyBase),
                 env("OPENAGENT4J_" + envToken(pid) + "_BASE_URL"),
                 fileProps.getProperty(keyBase),
-                firstEnv(known.map(LlmProvider::baseUrlEnvFallbacks).orElse(List.of())));
+                firstEnv(known.map(ProviderDescriptor::baseUrlEnvFallbacks).orElse(List.of())));
         return new ProviderSettings(pid, api, base);
     }
 

@@ -66,8 +66,10 @@ Environment overrides such as `OPENAGENT4J_OPENAI_API_KEY`, `OPENAGENT4J_DEEPSEE
 
 ### Adding providers and models
 
-- **Built-in defaults**: add an enum constant to `org.openagent4j.provider.LlmProvider` (default base URL + optional legacy env vars), and add models to `org.openagent4j.provider.KnownModel`. Facades like `OpenApi` / `DeepSeek` can delegate to `KnownModel` for stable names.
-- **Ad hoc providers**: use `Model.of("vendor-id", "model-name")` with `openagent4j.vendor-id.api-key` / `.base-url` (or `OPENAGENT4J_VENDOR_ID_*`). For vendors not in `LlmProvider`, you must configure a base URL; `OpenAiCompatibleLlmExecutor` will not guess one.
+- **Built-in defaults**: add an enum constant to `org.openagent4j.provider.LlmProvider` (default base URL + optional legacy env vars), and add curated models to `org.openagent4j.provider.KnownModel`.
+- **Runtime/provider extensibility**: use `ProviderRegistry` / `ProviderDescriptor` to create an immutable provider catalog (e.g., add private gateways or self-hosted endpoints without touching enums).
+- **Runtime/model extensibility**: start from `ModelRegistry.defaults().toBuilder()` and register aliases (e.g., `"acme.fast" -> Model.of("acme", "fast-1")`) for easy reuse across modules.
+- **Ad hoc providers**: use `Model.of("vendor-id", "model-name")` with `openagent4j.vendor-id.api-key` / `.base-url` (or `OPENAGENT4J_VENDOR_ID_*`). For vendors not in the default registry, configure a base URL explicitly; `OpenAiCompatibleLlmExecutor` will not guess one.
 
 ## Contributing
 

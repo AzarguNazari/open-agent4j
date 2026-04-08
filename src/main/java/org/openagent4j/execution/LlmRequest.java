@@ -39,13 +39,9 @@ public record LlmRequest(
     }
 
     public String systemMessage() {
-        StringBuilder message = new StringBuilder("You are ")
-                .append(agentName)
-                .append(". ")
-                .append(agentAbout);
-        if (purpose != null && !purpose.isBlank()) {
-            message.append(' ').append(purpose.trim());
+        if (purpose == null || purpose.isBlank()) {
+            return "";
         }
-        return message.toString();
+        return purpose.trim();
     }
 }

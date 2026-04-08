@@ -34,6 +34,7 @@ class LlmAgentTest {
                 .name("Weather Agent")
                 .about(
                         "Your are a weather agent and your task is to make sure to find the weather of a specific locaiton which is passed")
+                .purpose("You are a weather assistant. Return concise weather JSON.")
                 .task(task)
                 .tools(
                         LlmAgent.tools(
@@ -49,7 +50,7 @@ class LlmAgentTest {
                 .agentProperties(OpenAgentProperties.empty())
                 .llmExecutor(req -> {
                     assertEquals("Weather Agent", req.agentName());
-                    assertTrue(req.systemMessage().contains("Weather Agent"));
+                    assertEquals("You are a weather assistant. Return concise weather JSON.", req.systemMessage());
                     assertEquals(
                             """
                             Oslo
@@ -150,8 +151,7 @@ class LlmAgentTest {
                 .model(Model.of("p", "m"))
                 .agentProperties(OpenAgentProperties.empty())
                 .llmExecutor(r -> {
-                    assertTrue(r.systemMessage().contains("About line."));
-                    assertTrue(r.systemMessage().contains("Follow instructions carefully."));
+                    assertEquals("Follow instructions carefully.", r.systemMessage());
                     return "y";
                 })
                 .build();

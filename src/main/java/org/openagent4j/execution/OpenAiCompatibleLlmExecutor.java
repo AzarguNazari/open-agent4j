@@ -5,34 +5,42 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.IOException;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.util.Objects;
+import java.util.concurrent.TimeUnit;
+import okhttp3.MediaType;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.RequestBody;
+import okhttp3.Response;
+import okhttp3.ResponseBody;
 import org.openagent4j.config.ProviderSettings;
-import org.openagent4j.provider.LlmProvider;
+import org.openagent4j.provider.ProviderDescriptor;
+import org.openagent4j.provider.ProviderRegistry;
 
 /**
  * Calls an OpenAI-compatible chat completions API using {@link LlmRequest#providerSettings()}.
  *
- * <p>Built-in {@link LlmProvider} entries supply a default base URL when none is configured. For other provider ids,
- * set {@code openagent4j.<provider>.base-url} or {@code OPENAGENT4J_<PROVIDER>_BASE_URL}.
+ * <p>Built-in providers from {@link ProviderRegistry#defaults()} supply a default base URL when none is configured.
+ * For other provider ids, set {@code openagent4j.<provider>.base-url} or {@code OPENAGENT4J_<PROVIDER>_BASE_URL}.
  */
 public final class OpenAiCompatibleLlmExecutor implements LlmExecutor {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private static final Duration TIMEOUT = Duration.ofMinutes(2);
+    private static final MediaType JSON_MEDIA_TYPE = MediaType.parse("application/json; charset=utf-8");
+    private static final int TIMEOUT_MINUTES = 2;
 
-    private final HttpClient httpClient;
+    private final OkHttpClient httpClient;
 
     public OpenAiCompatibleLlmExecutor() {
-        this(HttpClient.newBuilder().connectTimeout(TIMEOUT).build());
+        this(new OkHttpClient.Builder()
+                .connectTimeout(TIMEOUT_MINUTES, TimeUnit.MINUTES)
+                .readTimeout(TIMEOUT_MINUTES, TimeUnit.MINUTES)
+                .writeTimeout(TIMEOUT_MINUTES, TimeUnit.MINUTES)
+                .build());
     }
 
-    public OpenAiCompatibleLlmExecutor(HttpClient httpClient) {
+    public OpenAiCompatibleLlmExecutor(OkHttpClient httpClient) {
         this.httpClient = Objects.requireNonNull(httpClient, "httpClient");
     }
 
@@ -72,22 +80,19 @@ public final class OpenAiCompatibleLlmExecutor implements LlmExecutor {
             throw new IllegalStateException("Failed to serialize request", e);
         }
 
-        HttpRequest httpRequest = HttpRequest.newBuilder()
-                .uri(URI.create(url))
-                .timeout(TIMEOUT)
-                .header("Content-Type", "application/json; charset=utf-8")
+        Request httpRequest = new Request.Builder()
+                .url(url)
                 .header("Authorization", "Bearer " + apiKey)
-                .POST(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8))
+                .post(RequestBody.create(json.getBytes(StandardCharsets.UTF_8), JSON_MEDIA_TYPE))
                 .build();
 
-        try {
-            HttpResponse<String> response =
-                    httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-            if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                throw new IllegalStateException(
-                        "Chat API HTTP " + response.statusCode() + ": " + response.body());
+        try (Response response = httpClient.newCall(httpRequest).execute()) {
+            ResponseBody responseBody = response.body();
+            String responseText = responseBody != null ? responseBody.string() : "";
+            if (!response.isSuccessful()) {
+                throw new IllegalStateException("Chat API HTTP " + response.code() + ": " + responseText);
             }
-            JsonNode root = MAPPER.readTree(response.body());
+            JsonNode root = MAPPER.readTree(responseText);
             JsonNode err = root.get("error");
             if (err != null && !err.isNull()) {
                 String msg = err.hasNonNull("message") ? err.get("message").asText() : err.toString();
@@ -95,18 +100,15 @@ public final class OpenAiCompatibleLlmExecutor implements LlmExecutor {
             }
             JsonNode choices = root.get("choices");
             if (choices == null || !choices.isArray() || choices.isEmpty()) {
-                throw new IllegalStateException("Unexpected response (no choices): " + response.body());
+                throw new IllegalStateException("Unexpected response (no choices): " + responseText);
             }
             JsonNode content = choices.get(0).path("message").path("content");
             if (content.isMissingNode() || content.isNull()) {
-                throw new IllegalStateException("Unexpected response (no message content): " + response.body());
+                throw new IllegalStateException("Unexpected response (no message content): " + responseText);
             }
             return content.asText();
         } catch (IOException e) {
             throw new IllegalStateException("Chat request failed: " + e.getMessage(), e);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("Chat request interrupted", e);
         }
     }
 
@@ -115,8 +117,8 @@ public final class OpenAiCompatibleLlmExecutor implements LlmExecutor {
         if (configured != null && !configured.isBlank()) {
             return configured.trim();
         }
-        return LlmProvider.byId(settings.providerId())
-                .map(LlmProvider::defaultBaseUrl)
+        return ProviderRegistry.defaults().find(settings.providerId())
+                .map(ProviderDescriptor::defaultBaseUrl)
                 .orElseThrow(() -> new IllegalStateException(
                         "No base URL for provider '"
                                 + settings.providerId()
@@ -124,7 +126,7 @@ public final class OpenAiCompatibleLlmExecutor implements LlmExecutor {
                                 + settings.providerId()
                                 + ".base-url, OPENAGENT4J_"
                                 + settings.providerId().toUpperCase().replace('-', '_')
-                                + "_BASE_URL, or register a default on LlmProvider."));
+                                + "_BASE_URL, or register a default on ProviderRegistry."));
     }
 
     private static String trimTrailingSlash(String base) {
