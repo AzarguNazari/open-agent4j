@@ -13,8 +13,6 @@ Use when writing, reviewing, or refactoring Java code.
 ### General
 - No `var` keyword.
 - Do not keep unused variables, classes, or methods.
-- Use records for plain data holders; never add constructors to records with more than 2 fields - use `@Builder` instead.
-- No `@With` on records in mappers - use `@Builder=true`.
 - Use `final` only on classes and class fields, not inside methods.
 - Use guard-clause pattern instead of if-else or ternary operators.
 - Do not use comment unless its VERY important. If you write code, keep it as as simple as possible

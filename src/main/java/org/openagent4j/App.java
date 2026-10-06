@@ -13,9 +13,7 @@ public class App {
     public static void main(String[] args) {
         LlmSession session = LlmSession.newPersistentSession("demo-user");
 
-        record Answer(String answer, String explanation) {
-        }
-        LlmAgent<Answer> chatAgent = LlmAgent.<Answer>builder()
+        LlmAgent<String> chatAgent = LlmAgent.<String>builder()
                 .name("SimpleChat")
                 .about("Your name is HazChat. You are here to help you in math.")
                 .purpose(
@@ -24,11 +22,11 @@ public class App {
                 .onStep(step -> System.out.println("[step] " + step.action()))
                 .task("What's your name?")
                 .session(session)
-                .returnType(Answer.class)
+                .returnType(String.class)
                 .llmExecutor(new OpenAiCompatibleLlmExecutor())
                 .build();
 
-        Answer response = chatAgent.run();
+        String response = chatAgent.run();
         System.out.println("Response is " + response);
     }
 }

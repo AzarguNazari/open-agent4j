@@ -24,6 +24,15 @@ class LlmAgentTest {
 
     record WeatherResponse(String city, String temperature, String nextDayPrediction) {}
 
+    private static WeatherResponse parseWeather(String rawText) {
+        String[] fields = rawText.replaceAll("[{}\"\\s]", "").split(",");
+        return new WeatherResponse(value(fields[0]), value(fields[1]), value(fields[2]));
+    }
+
+    private static String value(String field) {
+        return field.substring(field.indexOf(':') + 1);
+    }
+
     @Test
     void runBuildsRequestInterpolatesInputAndDeserializesReturnType() {
         String task = """
@@ -46,6 +55,7 @@ class LlmAgentTest {
                 .model(Model.of("acme", "gpt-mock"))
                 .modelConfig(ModelConfiguration.temperature(0).maxTokenOutput(500))
                 .agentProperties(OpenAgentProperties.empty())
+                .responseParser(LlmAgentTest::parseWeather)
                 .llmExecutor(req -> {
                     assertEquals("Weather Agent", req.agentName());
                     assertEquals("You are a weather assistant. Return concise weather JSON.", req.systemMessage());
@@ -146,6 +156,7 @@ class LlmAgentTest {
                 .about("Expose configured return type to executor.")
                 .task("weather")
                 .returnType(WeatherResponse.class)
+                .responseParser(LlmAgentTest::parseWeather)
                 .model(Model.of("test", "model"))
                 .agentProperties(OpenAgentProperties.empty())
                 .llmExecutor(req -> {
@@ -163,6 +174,21 @@ class LlmAgentTest {
 
         WeatherResponse out = agent.run();
         assertEquals("Oslo", out.city());
+    }
+
+    @Test
+    void customResponseParserOverridesDefaultParsing() {
+        LlmAgent<Integer> agent = LlmAgent.<Integer>builder()
+                .name("Counter")
+                .about("Counts characters.")
+                .task("count")
+                .model(Model.of("test", "model"))
+                .agentProperties(OpenAgentProperties.empty())
+                .llmExecutor(request -> "four")
+                .responseParser(String::length)
+                .build();
+
+        assertEquals(4, agent.run());
     }
 
     @Test

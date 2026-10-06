@@ -3,7 +3,6 @@ package org.openagent4j.config;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
-import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Properties;
@@ -54,55 +53,46 @@ public final class OpenAgentProperties {
         if (providerId == null || providerId.isBlank()) {
             return ProviderSettings.unresolved("");
         }
-        String pid = providerId.trim();
-        String keyApi = "openagent4j." + pid + ".api-key";
-        String keyBase = "openagent4j." + pid + ".base-url";
-        Optional<ProviderDescriptor> known = ProviderRegistry.defaults().find(pid);
-        String api = firstNonBlank(
-                System.getProperty(keyApi),
-                env("OPENAGENT4J_" + envToken(pid) + "_API_KEY"),
-                fileProps.getProperty(keyApi),
-                firstEnv(known.map(ProviderDescriptor::apiKeyEnvFallbacks).orElse(List.of())));
-        String base = firstNonBlank(
-                System.getProperty(keyBase),
-                env("OPENAGENT4J_" + envToken(pid) + "_BASE_URL"),
-                fileProps.getProperty(keyBase),
-                firstEnv(known.map(ProviderDescriptor::baseUrlEnvFallbacks).orElse(List.of())));
-        return new ProviderSettings(pid, api, base);
+        String normalizedId = providerId.trim();
+        String environmentToken = ProviderSettings.environmentToken(normalizedId);
+        String apiKeyProperty = "openagent4j." + normalizedId + ".api-key";
+        String baseUrlProperty = "openagent4j." + normalizedId + ".base-url";
+        Optional<ProviderDescriptor> descriptor = ProviderRegistry.defaults().find(normalizedId);
+        String apiKey = firstNonBlank(
+                System.getProperty(apiKeyProperty),
+                environment("OPENAGENT4J_" + environmentToken + "_API_KEY"),
+                fileProps.getProperty(apiKeyProperty),
+                firstEnvironment(descriptor.map(ProviderDescriptor::apiKeyEnvFallbacks).orElse(List.of())));
+        String baseUrl = firstNonBlank(
+                System.getProperty(baseUrlProperty),
+                environment("OPENAGENT4J_" + environmentToken + "_BASE_URL"),
+                fileProps.getProperty(baseUrlProperty),
+                firstEnvironment(descriptor.map(ProviderDescriptor::baseUrlEnvFallbacks).orElse(List.of())));
+        return new ProviderSettings(normalizedId, apiKey, baseUrl);
     }
 
-    private static String env(String name) {
-        if (name == null) {
-            return null;
-        }
+    private static String environment(String name) {
         try {
-            return Optional.ofNullable(System.getenv(name)).map(String::trim).filter(s -> !s.isEmpty()).orElse(null);
-        } catch (SecurityException e) {
+            return firstNonBlank(System.getenv(name));
+        } catch (SecurityException exception) {
             return null;
         }
     }
 
-    private static String envToken(String providerId) {
-        return providerId.toUpperCase(Locale.ROOT).replace('-', '_');
-    }
-
-    private static String firstEnv(List<String> names) {
-        for (String n : names) {
-            String v = env(n);
-            if (v != null && !v.isBlank()) {
-                return v.trim();
+    private static String firstEnvironment(List<String> names) {
+        for (String name : names) {
+            String value = environment(name);
+            if (value != null) {
+                return value;
             }
         }
         return null;
     }
 
     private static String firstNonBlank(String... values) {
-        if (values == null) {
-            return null;
-        }
-        for (String v : values) {
-            if (v != null && !v.isBlank()) {
-                return v.trim();
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value.trim();
             }
         }
         return null;
