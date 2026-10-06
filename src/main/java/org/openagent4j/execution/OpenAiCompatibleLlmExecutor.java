@@ -1,16 +1,8 @@
 package org.openagent4j.execution;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.IOException;
-import java.lang.reflect.Field;
-import java.lang.reflect.Modifier;
-import java.lang.reflect.RecordComponent;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
-import java.util.StringJoiner;
 import java.util.concurrent.TimeUnit;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
@@ -30,8 +22,8 @@ import org.openagent4j.provider.ProviderRegistry;
  */
 public final class OpenAiCompatibleLlmExecutor implements LlmExecutor {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final MediaType JSON_MEDIA_TYPE = MediaType.parse("application/json; charset=utf-8");
+    private static final String CHAT_COMPLETIONS_PATH = "/chat/completions";
     private static final int TIMEOUT_MINUTES = 2;
 
     private final OkHttpClient httpClient;
@@ -51,44 +43,10 @@ public final class OpenAiCompatibleLlmExecutor implements LlmExecutor {
     @Override
     public String complete(LlmRequest request) {
         Objects.requireNonNull(request.model(), "request.model");
-        ProviderSettings settings = request.providerSettings();
-        String apiKey = settings.apiKey();
-        if (apiKey == null || apiKey.isBlank()) {
-            throw new IllegalStateException(
-                    "Missing API key for provider '"
-                            + settings.providerId()
-                            + "'. Configure openagent4j."
-                            + settings.providerId()
-                            + ".api-key, OPENAGENT4J_"
-                            + settings.providerId().toUpperCase().replace('-', '_')
-                            + "_API_KEY, or a provider-specific env var (see LlmProvider).");
-        }
-        String base = effectiveBaseUrl(settings);
-        String url = trimTrailingSlash(base) + "/chat/completions";
-        String modelName = request.model().modelName();
-
-        ObjectNode body = MAPPER.createObjectNode();
-        body.put("model", modelName);
-        ArrayNode messages = body.putArray("messages");
-        String systemMessage = request.systemMessage();
-        if (request.expectsStructuredResponse()) {
-            ObjectNode responseFormat = body.putObject("response_format");
-            responseFormat.put("type", "json_object");
-            systemMessage = systemMessage + structuredOutputInstruction(request.responseType());
-        }
-        ObjectNode system = messages.addObject();
-        system.put("role", "system");
-        system.put("content", systemMessage);
-        ObjectNode user = messages.addObject();
-        user.put("role", "user");
-        user.put("content", request.taskPrompt());
-
-        String json;
-        try {
-            json = MAPPER.writeValueAsString(body);
-        } catch (IOException e) {
-            throw new IllegalStateException("Failed to serialize request", e);
-        }
+        ProviderSettings settings = Objects.requireNonNull(request.providerSettings(), "request.providerSettings");
+        String apiKey = requireApiKey(settings);
+        String url = trimTrailingSlash(effectiveBaseUrl(settings)) + CHAT_COMPLETIONS_PATH;
+        String json = ChatCompletionRequestWriter.write(request);
 
         Request httpRequest = new Request.Builder()
                 .url(url)
@@ -97,29 +55,37 @@ public final class OpenAiCompatibleLlmExecutor implements LlmExecutor {
                 .build();
 
         try (Response response = httpClient.newCall(httpRequest).execute()) {
-            ResponseBody responseBody = response.body();
-            String responseText = responseBody != null ? responseBody.string() : "";
+            String responseText = readBody(response);
             if (!response.isSuccessful()) {
                 throw new IllegalStateException("Chat API HTTP " + response.code() + ": " + responseText);
             }
-            JsonNode root = MAPPER.readTree(responseText);
-            JsonNode err = root.get("error");
-            if (err != null && !err.isNull()) {
-                String msg = err.hasNonNull("message") ? err.get("message").asText() : err.toString();
-                throw new IllegalStateException("Chat API error: " + msg);
-            }
-            JsonNode choices = root.get("choices");
-            if (choices == null || !choices.isArray() || choices.isEmpty()) {
-                throw new IllegalStateException("Unexpected response (no choices): " + responseText);
-            }
-            JsonNode content = choices.get(0).path("message").path("content");
-            if (content.isMissingNode() || content.isNull()) {
-                throw new IllegalStateException("Unexpected response (no message content): " + responseText);
-            }
-            return content.asText();
-        } catch (IOException e) {
-            throw new IllegalStateException("Chat request failed: " + e.getMessage(), e);
+            return ChatCompletionResponseReader.readContent(responseText);
+        } catch (IOException exception) {
+            throw new IllegalStateException("Chat request failed: " + exception.getMessage(), exception);
         }
+    }
+
+    private static String readBody(Response response) throws IOException {
+        ResponseBody responseBody = response.body();
+        if (responseBody == null) {
+            return "";
+        }
+        return responseBody.string();
+    }
+
+    private static String requireApiKey(ProviderSettings settings) {
+        String apiKey = settings.apiKey();
+        if (apiKey != null && !apiKey.isBlank()) {
+            return apiKey;
+        }
+        throw new IllegalStateException(
+                "Missing API key for provider '"
+                        + settings.providerId()
+                        + "'. Configure openagent4j."
+                        + settings.providerId()
+                        + ".api-key, OPENAGENT4J_"
+                        + ProviderSettings.environmentToken(settings.providerId())
+                        + "_API_KEY, or a provider-specific env var (see LlmProvider).");
     }
 
     private static String effectiveBaseUrl(ProviderSettings settings) {
@@ -135,7 +101,7 @@ public final class OpenAiCompatibleLlmExecutor implements LlmExecutor {
                                 + "'. Add openagent4j."
                                 + settings.providerId()
                                 + ".base-url, OPENAGENT4J_"
-                                + settings.providerId().toUpperCase().replace('-', '_')
+                                + ProviderSettings.environmentToken(settings.providerId())
                                 + "_BASE_URL, or register a default on ProviderRegistry."));
     }
 
@@ -144,43 +110,5 @@ public final class OpenAiCompatibleLlmExecutor implements LlmExecutor {
             return base.substring(0, base.length() - 1);
         }
         return base;
-    }
-
-    private static String structuredOutputInstruction(Class<?> responseType) {
-        StringJoiner fields = new StringJoiner(", ");
-        if (responseType.isRecord()) {
-            for (RecordComponent component : responseType.getRecordComponents()) {
-                fields.add("\"" + component.getName() + "\": \"" + typeLabel(component.getType()) + "\"");
-            }
-        } else {
-            for (Field field : responseType.getDeclaredFields()) {
-                if (Modifier.isStatic(field.getModifiers()) || field.isSynthetic()) {
-                    continue;
-                }
-                fields.add("\"" + field.getName() + "\": \"" + typeLabel(field.getType()) + "\"");
-            }
-        }
-        String shape = fields.length() == 0 ? "{}" : "{" + fields + "}";
-        return "\nReturn ONLY valid JSON that can be deserialized to "
-                + responseType.getName()
-                + ". Expected shape: "
-                + shape
-                + ".";
-    }
-
-    private static String typeLabel(Class<?> type) {
-        if (type.isArray()) {
-            return "array<" + typeLabel(type.getComponentType()) + ">";
-        }
-        if (type == String.class || type == char.class || type == Character.class) {
-            return "string";
-        }
-        if (type == boolean.class || type == Boolean.class) {
-            return "boolean";
-        }
-        if (type.isPrimitive() || Number.class.isAssignableFrom(type)) {
-            return "number";
-        }
-        return "object";
     }
 }

@@ -1,7 +1,6 @@
 package org.openagent4j.tool;
 
 import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -15,53 +14,68 @@ public final class ServiceTools {
 
     public static List<Tool> fromObject(Object instance) {
         Objects.requireNonNull(instance, "instance");
-        List<Tool> out = new ArrayList<>();
+        List<Tool> tools = new ArrayList<>();
         for (Method method : instance.getClass().getMethods()) {
-            AgentTool meta = method.getAnnotation(AgentTool.class);
-            if (meta == null) {
+            AgentTool metadata = method.getAnnotation(AgentTool.class);
+            if (metadata == null) {
                 continue;
             }
-            if (!Modifier.isPublic(method.getModifiers())) {
-                continue;
-            }
-            if (method.getDeclaringClass() == Object.class) {
-                continue;
-            }
-            String name = meta.name().isBlank() ? method.getName() : meta.name();
-            String description = meta.description().isBlank() ? name : meta.description();
-            int paramCount = method.getParameterCount();
-            if (paramCount > 1) {
-                throw new IllegalArgumentException(
-                        "AgentTool method " + method + " must have 0 or 1 parameter (ToolArguments)");
-            }
-            if (paramCount == 1 && method.getParameterTypes()[0] != ToolArguments.class) {
-                throw new IllegalArgumentException(
-                        "AgentTool method " + method + " must use ToolArguments as its single parameter");
-            }
-            Tool tool = Tool.builder(name)
-                    .description(description)
-                    .action(args -> invoke(method, instance, args))
-                    .build();
-            out.add(tool);
+            validateSignature(method);
+            tools.add(toTool(method, metadata, instance));
         }
-        if (out.isEmpty()) {
+        if (tools.isEmpty()) {
             throw new IllegalArgumentException("No @AgentTool methods on " + instance.getClass().getName());
         }
-        return List.copyOf(out);
+        return List.copyOf(tools);
     }
 
-    private static Object invoke(Method method, Object instance, ToolArguments args) {
+    private static void validateSignature(Method method) {
+        int parameterCount = method.getParameterCount();
+        if (parameterCount > 1) {
+            throw new IllegalArgumentException(
+                    "AgentTool method " + method + " must have 0 or 1 parameter (ToolArguments)");
+        }
+        if (parameterCount == 1 && method.getParameterTypes()[0] != ToolArguments.class) {
+            throw new IllegalArgumentException(
+                    "AgentTool method " + method + " must use ToolArguments as its single parameter");
+        }
+    }
+
+    private static Tool toTool(Method method, AgentTool metadata, Object instance) {
+        String name = valueOrDefault(metadata.name(), method.getName());
+        String description = valueOrDefault(metadata.description(), name);
+        return Tool.builder(name)
+                .description(description)
+                .action(arguments -> invoke(method, instance, arguments))
+                .build();
+    }
+
+    private static String valueOrDefault(String value, String defaultValue) {
+        if (value.isBlank()) {
+            return defaultValue;
+        }
+        return value;
+    }
+
+    private static Object invoke(Method method, Object instance, ToolArguments arguments) {
         try {
             if (method.getParameterCount() == 0) {
                 return method.invoke(instance);
             }
-            return method.invoke(instance, args);
-        } catch (ReflectiveOperationException e) {
-            Throwable cause = e.getCause() != null ? e.getCause() : e;
-            if (cause instanceof RuntimeException re) {
-                throw re;
-            }
-            throw new IllegalStateException(cause);
+            return method.invoke(instance, arguments);
+        } catch (ReflectiveOperationException exception) {
+            throw unwrap(exception);
         }
+    }
+
+    private static RuntimeException unwrap(ReflectiveOperationException exception) {
+        Throwable cause = exception.getCause();
+        if (cause == null) {
+            return new IllegalStateException(exception);
+        }
+        if (cause instanceof RuntimeException runtimeException) {
+            return runtimeException;
+        }
+        return new IllegalStateException(cause);
     }
 }

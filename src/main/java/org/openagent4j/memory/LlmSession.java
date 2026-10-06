@@ -4,9 +4,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import lombok.Builder;
 
-@Builder(toBuilder = true)
 public record LlmSession(String sessionId, boolean persistent) {
 
     private static final ConcurrentMap<String, ConcurrentMap<String, Object>> SESSION_STATE = new ConcurrentHashMap<>();

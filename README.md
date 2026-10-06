@@ -40,7 +40,7 @@ The framework ships with an `OpenAiCompatibleLlmExecutor` which works out of the
 
 ### 1. Simple Structured Output Agent
 
-This agent returns a strictly typed `Answer` record instead of a plain string.
+This agent returns a typed `Answer` record instead of a plain string. The library has no JSON dependency of its own, so you plug in the parser (Jackson, Gson, ...) you already use via `responseParser(...)`. Without one, the agent returns the raw model text.
 
 ```java
 import org.openagent4j.*;
@@ -58,6 +58,7 @@ public class App {
                 .task("{input}")
                 .model(DeepSeek.V4_Flash())
                 .returnType(Answer.class)
+                .responseParser(rawText -> objectMapper.readValue(rawText, Answer.class))
                 .llmExecutor(new OpenAiCompatibleLlmExecutor())
                 .build();
 
@@ -84,7 +85,7 @@ LlmAgent<String> supportAgent = LlmAgent.<String>builder()
     .purpose("Answer support questions clearly.")
     .task("{input}")
     .model(
-        OpenApi.gpt4o()
+        OpenApi.of("gpt-4o")
              .withFallback(org.openagent4j.model.DeepSeek.V4_Flash())
     )
     .retryPolicy(RetryPolicy.exponentialBackoff(3))

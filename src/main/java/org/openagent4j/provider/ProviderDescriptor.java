@@ -16,8 +16,8 @@ public record ProviderDescriptor(
         }
         id = id.trim().toLowerCase(Locale.ROOT);
         defaultBaseUrl = normalize(defaultBaseUrl);
-        apiKeyEnvFallbacks = apiKeyEnvFallbacks == null ? List.of() : List.copyOf(apiKeyEnvFallbacks);
-        baseUrlEnvFallbacks = baseUrlEnvFallbacks == null ? List.of() : List.copyOf(baseUrlEnvFallbacks);
+        apiKeyEnvFallbacks = immutableCopy(apiKeyEnvFallbacks);
+        baseUrlEnvFallbacks = immutableCopy(baseUrlEnvFallbacks);
     }
 
     public static ProviderDescriptor adHoc(String id) {
@@ -26,6 +26,13 @@ public record ProviderDescriptor(
 
     public Model model(String modelName) {
         return Model.of(id, modelName);
+    }
+
+    private static List<String> immutableCopy(List<String> values) {
+        if (values == null) {
+            return List.of();
+        }
+        return List.copyOf(values);
     }
 
     private static String normalize(String value) {
